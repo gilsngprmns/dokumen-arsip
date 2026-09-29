@@ -1,7 +1,19 @@
 import axios from 'axios'
 
-const apiHost = window.location.hostname || 'localhost'
-const api = axios.create({ baseURL: `http://${apiHost}:5000/api` })
+const configuredApiUrl = import.meta.env.VITE_API_URL?.trim()
+const apiBaseUrl = configuredApiUrl || (import.meta.env.DEV ? 'http://localhost:5000/api' : '')
+
+if (!apiBaseUrl) {
+  throw new Error('VITE_API_URL wajib dikonfigurasi untuk build production.')
+}
+
+if (import.meta.env.PROD && !apiBaseUrl.startsWith('https://')) {
+  throw new Error('VITE_API_URL harus menggunakan HTTPS di production.')
+}
+
+const api = axios.create({
+  baseURL: apiBaseUrl,
+})
 
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('token')
