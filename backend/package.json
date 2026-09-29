@@ -6,7 +6,10 @@
   "scripts": {
     "dev": "nodemon src/server.js",
     "start": "node src/server.js",
-    "seed:admin": "node scripts/createAdmin.js"
+    "seed:admin": "node scripts/createAdmin.js",
+    "migrate": "node scripts/runMigrations.js",
+    "backup:uploads": "node scripts/backupUploads.js",
+    "test": "node --test test/integration.test.js"
   },
   "keywords": [],
   "author": "",

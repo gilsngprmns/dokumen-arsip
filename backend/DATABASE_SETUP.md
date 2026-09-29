@@ -29,7 +29,7 @@ Script membuat tabel:
 
 Data awal seksi, role `admin`/`staff`, dan kategori juga dibuat otomatis.
 
-Jika database sudah pernah dibuat sebelumnya, jalankan migration request dokumen:
+Saat backend dijalankan, tabel request dokumen akan disiapkan otomatis. Untuk database lama, migration juga dapat dijalankan manual:
 
 ```cmd
 psql -U postgres -d Sistem_pengarsipan -f database\migrations\003_add_document_requests.sql
@@ -81,6 +81,36 @@ npm run dev
 ```
 
 Backend berjalan di `http://localhost:5000`.
+
+## 6. Migration, backup, dan integration test
+
+Jalankan migration yang belum pernah diterapkan:
+
+```cmd
+npm run migrate
+```
+
+Buat salinan folder upload sebelum memindahkan atau memperbarui server:
+
+```cmd
+npm run backup:uploads
+```
+
+Backup disimpan ke `BACKUP_DIR` atau `backend/backups` secara default. Jalankan integration test saat backend aktif:
+
+```cmd
+npm test
+```
+
+Untuk mengaktifkan test login, set kredensial hanya di environment terminal, bukan di file yang di-commit:
+
+```cmd
+set TEST_USERNAME=admin
+set TEST_PASSWORD=password_anda
+npm test
+```
+
+Atur `CORS_ORIGINS` di `.env` menjadi daftar URL frontend yang benar-benar digunakan. Jangan gunakan `origin: *` untuk aplikasi dengan token bearer.
 
 ## Catatan file upload
 

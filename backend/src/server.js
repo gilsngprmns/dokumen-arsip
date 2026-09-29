@@ -3,6 +3,7 @@ require("dotenv").config();
 const app = require("./app");
 const pool = require("./config/database");
 const ensureRoles = require("./config/ensureRoles");
+const ensureDocumentRequests = require("./config/ensureDocumentRequests");
 
 const PORT = process.env.PORT || 5000;
 
@@ -10,6 +11,7 @@ async function startServer() {
   try {
     const result = await pool.query("SELECT NOW()");
     await ensureRoles();
+    await ensureDocumentRequests();
 
     console.log("Database PostgreSQL berhasil terhubung");
     console.log("Role admin dan staff siap digunakan");

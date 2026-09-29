@@ -963,10 +963,12 @@ const getPublicDokumenByQrToken = async (req, res) => {
     const result = await pool.query(
       `
       SELECT d.nomor_dokumen, d.judul, d.tanggal_dokumen, d.tahun,
-        d.deskripsi, d.status, d.created_at, d.updated_at,
+        d.deskripsi, d.status, d.nama_file, d.tipe_file, d.ukuran_file,
+        d.created_at, d.updated_at, u.nama AS nama_uploader,
         s.nama_seksi, k.nama_kategori,
         r.kode_rak, r.nama_rak, r.lokasi AS lokasi_rak
       FROM dokumen d
+      JOIN users u ON u.id = d.uploaded_by
       JOIN seksi s ON s.id = d.seksi_id
       JOIN kategori k ON k.id = d.kategori_id
       LEFT JOIN rak r ON r.id = d.rak_id

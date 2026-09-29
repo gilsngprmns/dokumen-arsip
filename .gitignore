@@ -16,6 +16,8 @@ frontend/dist/
 # Uploaded Documents
 backend/uploads/*
 !backend/uploads/.gitkeep
+backend/backups/*
+!backend/backups/.gitkeep
 
 # OS
 .DS_Store
