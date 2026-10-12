@@ -1,12 +1,13 @@
 const express = require("express");
 const authMiddleware = require("../middleware/authMiddleware");
-const roleMiddleware = require("../middleware/roleMiddleware");
+const adminOnly = require("../middleware/adminOnly");
+const { requireIdParam } = require("../middleware/validateId");
 const { getAllRak, createRak, updateRak, deleteRak } = require("../controllers/rakController");
 
 const router = express.Router();
 router.get("/", authMiddleware, getAllRak);
-router.post("/", authMiddleware, roleMiddleware("admin"), createRak);
-router.put("/:id", authMiddleware, roleMiddleware("admin"), updateRak);
-router.delete("/:id", authMiddleware, roleMiddleware("admin"), deleteRak);
+router.post("/", ...adminOnly, createRak);
+router.put("/:id", ...adminOnly, requireIdParam("id"), updateRak);
+router.delete("/:id", ...adminOnly, requireIdParam("id"), deleteRak);
 
 module.exports = router;

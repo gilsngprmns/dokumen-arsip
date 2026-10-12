@@ -1,5 +1,6 @@
 const pool = require("../config/database");
 const logActivity = require("../services/activityLogService");
+const validators = require("../utils/validators");
 
 const requestSelect = `
   SELECT
@@ -70,14 +71,21 @@ const createRequest = async (req, res) => {
     if (!requesterSectionId) {
       return res.status(400).json({ success: false, message: "Akun harus memiliki seksi untuk membuat permintaan" });
     }
-    if (!targetSectionId || !title || !title.trim()) {
-      return res.status(400).json({ success: false, message: "Seksi tujuan dan judul dokumen wajib diisi" });
-    }
-    if (String(requesterSectionId) === String(targetSectionId)) {
+
+    const targetCheck = validators.validateIntegerId(targetSectionId, "Seksi tujuan");
+    if (targetCheck.error) return validators.badRequest(res, targetCheck.error);
+
+    const titleCheck = validators.validateString(title, "Judul permintaan", { max: validators.MAX_LENGTH.judul_permintaan });
+    if (titleCheck.error) return validators.badRequest(res, titleCheck.error);
+
+    const detailCheck = validators.validateOptionalString(detail, "Detail permintaan", { max: validators.MAX_LENGTH.detail_permintaan });
+    if (detailCheck.error) return validators.badRequest(res, detailCheck.error);
+
+    if (String(requesterSectionId) === String(targetCheck.value)) {
       return res.status(400).json({ success: false, message: "Permintaan harus ditujukan ke seksi lain" });
     }
 
-    const targetSection = await pool.query("SELECT id FROM seksi WHERE id = $1", [targetSectionId]);
+    const targetSection = await pool.query("SELECT id FROM seksi WHERE id = $1", [targetCheck.value]);
     if (targetSection.rows.length === 0) {
       return res.status(404).json({ success: false, message: "Seksi tujuan tidak ditemukan" });
     }
@@ -87,10 +95,10 @@ const createRequest = async (req, res) => {
         (requested_by, requester_seksi_id, target_seksi_id, judul_permintaan, detail_permintaan)
        VALUES ($1, $2, $3, $4, $5)
        RETURNING id`,
-      [req.user.id, requesterSectionId, targetSectionId, title.trim(), detail?.trim() || null],
+      [req.user.id, requesterSectionId, targetCheck.value, titleCheck.value, detailCheck.value],
     );
     const requestId = result.rows[0].id;
-    await logActivity({ userId: req.user.id, requestId, activity: "REQUEST_DOCUMENT", description: `Meminta dokumen: ${title.trim()}` });
+    await logActivity({ userId: req.user.id, requestId, activity: "REQUEST_DOCUMENT", description: `Meminta dokumen: ${titleCheck.value}` });
 
     return res.status(201).json({ success: true, message: "Permintaan dokumen berhasil dibuat", data: await getRequest(requestId) });
   } catch (error) {
@@ -111,10 +119,17 @@ const processRequest = async (req, res) => {
     }
 
     const { dokumen_id: documentId, response_note: responseNote } = req.body;
-    if (documentId) {
+
+    const documentCheck = validators.validateOptionalIntegerId(documentId, "Dokumen");
+    if (documentCheck.error) return validators.badRequest(res, documentCheck.error);
+
+    const noteCheck = validators.validateOptionalString(responseNote, "Catatan respons", { max: validators.MAX_LENGTH.response_note });
+    if (noteCheck.error) return validators.badRequest(res, noteCheck.error);
+
+    if (documentCheck.value) {
       const document = await pool.query(
         "SELECT id FROM dokumen WHERE id = $1 AND seksi_id = $2 AND deleted_at IS NULL",
-        [documentId, request.target_seksi_id],
+        [documentCheck.value, request.target_seksi_id],
       );
       if (document.rows.length === 0) return res.status(400).json({ success: false, message: "Dokumen tidak tersedia pada seksi tujuan" });
     }
@@ -124,9 +139,9 @@ const processRequest = async (req, res) => {
        SET status = 'processed', dokumen_id = $1, processed_by = $2,
            response_note = $3, processed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
        WHERE id = $4`,
-      [documentId || null, req.user.id, responseNote?.trim() || null, request.id],
+      [documentCheck.value || null, req.user.id, noteCheck.value, request.id],
     );
-    await logActivity({ userId: req.user.id, requestId: request.id, documentId: documentId || null, activity: "PROCESS_DOCUMENT_REQUEST", description: `Memproses permintaan: ${request.judul_permintaan}` });
+    await logActivity({ userId: req.user.id, requestId: request.id, documentId: documentCheck.value || null, activity: "PROCESS_DOCUMENT_REQUEST", description: `Memproses permintaan: ${request.judul_permintaan}` });
 
     return res.json({ success: true, message: "Permintaan berhasil diproses", data: await getRequest(request.id) });
   } catch (error) {

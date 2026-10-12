@@ -2,6 +2,8 @@ const bcrypt = require("bcryptjs");
 
 const pool = require("../config/database");
 const logActivity = require("../services/activityLogService");
+const serializeUser = require("../utils/serializeUser");
+const validators = require("../utils/validators");
 
 const userSelect = `
   SELECT
@@ -20,36 +22,29 @@ const userSelect = `
   LEFT JOIN seksi s ON s.id = u.seksi_id
 `;
 
-const serializeUser = (user) => ({
-  id: user.id,
-  nama: user.nama,
-  username: user.username,
-  email: user.email,
-  role: user.nama_role,
-  seksi_id: user.seksi_id,
-  nama_seksi: user.nama_seksi,
-  status: user.status ? "aktif" : "nonaktif",
-  created_at: user.created_at,
-  updated_at: user.updated_at,
-});
+const isSelf = (req, targetId) => String(req.user.id) === String(targetId);
 
+// Validasi kombinasi role + seksi dan pastikan seksi benar-benar ada.
 const validateRoleAndSection = async (role, seksiId) => {
-  if (!role || !["admin", "staff"].includes(role)) {
-    return "Role harus berupa admin atau staff";
-  }
+  const roleCheck = validators.validateEnum(role, "Role", ["admin", "staff"]);
+  if (roleCheck.error) return roleCheck.error;
 
-  if (role === "staff" && !seksiId) {
+  const seksiCheck = validators.validateOptionalIntegerId(seksiId, "Seksi");
+  if (seksiCheck.error) return seksiCheck.error;
+  const validSeksiId = seksiCheck.value;
+
+  if (roleCheck.value === "staff" && !validSeksiId) {
     return "Staff wajib memiliki seksi";
   }
 
-  if (role === "admin" && seksiId) {
+  if (roleCheck.value === "admin" && validSeksiId) {
     return "Admin tidak boleh memiliki seksi";
   }
 
-  if (seksiId) {
+  if (validSeksiId) {
     const section = await pool.query(
       "SELECT id FROM seksi WHERE id = $1",
-      [seksiId]
+      [validSeksiId]
     );
 
     if (section.rows.length === 0) {
@@ -98,26 +93,21 @@ const createUser = async (req, res) => {
       seksi_id: seksiId = null,
     } = req.body;
 
-    if (!nama || !username || !password) {
-      return res.status(400).json({
-        success: false,
-        message: "Nama, username, dan password wajib diisi",
-      });
-    }
+    const namaCheck = validators.validateString(nama, "Nama", { max: validators.MAX_LENGTH.nama });
+    if (namaCheck.error) return validators.badRequest(res, namaCheck.error);
 
-    if (password.length < 8) {
-      return res.status(400).json({
-        success: false,
-        message: "Password minimal 8 karakter",
-      });
-    }
+    const usernameCheck = validators.validateUsername(username, "Username");
+    if (usernameCheck.error) return validators.badRequest(res, usernameCheck.error);
+
+    const emailCheck = validators.validateEmail(email, "Email", { allowNull: true });
+    if (emailCheck.error) return validators.badRequest(res, emailCheck.error);
+
+    const passwordCheck = validators.validatePassword(password, "Password");
+    if (passwordCheck.error) return validators.badRequest(res, passwordCheck.error);
 
     const validationError = await validateRoleAndSection(role, seksiId);
     if (validationError) {
-      return res.status(400).json({
-        success: false,
-        message: validationError,
-      });
+      return validators.badRequest(res, validationError);
     }
 
     const roleId = await getRoleId(role);
@@ -127,14 +117,14 @@ const createUser = async (req, res) => {
         message: "Role belum tersedia di database",
       });
     }
-    const passwordHash = await bcrypt.hash(password, 12);
+    const passwordHash = await bcrypt.hash(passwordCheck.value, 12);
     const result = await pool.query(
       `
       INSERT INTO users (nama, username, email, password, role_id, seksi_id, status)
       VALUES ($1, $2, $3, $4, $5, $6, TRUE)
       RETURNING id
       `,
-      [nama.trim(), username.trim(), email || null, passwordHash, roleId, seksiId]
+      [namaCheck.value, usernameCheck.value, emailCheck.value, passwordHash, roleId, seksiId]
     );
 
     const user = await pool.query(`${userSelect} WHERE u.id = $1`, [
@@ -143,7 +133,7 @@ const createUser = async (req, res) => {
     await logActivity({
       userId: req.user.id,
       activity: "CREATE_USER",
-      description: `Membuat user ${username.trim()}`,
+      description: `Membuat user ${usernameCheck.value}`,
     });
 
     return res.status(201).json({
@@ -178,19 +168,23 @@ const updateUser = async (req, res) => {
       seksi_id: seksiId = null,
     } = req.body;
 
-    if (!nama || !username || !role) {
-      return res.status(400).json({
-        success: false,
-        message: "Nama, username, dan role wajib diisi",
-      });
-    }
+    const namaCheck = validators.validateString(nama, "Nama", { max: validators.MAX_LENGTH.nama });
+    if (namaCheck.error) return validators.badRequest(res, namaCheck.error);
+
+    const usernameCheck = validators.validateUsername(username, "Username");
+    if (usernameCheck.error) return validators.badRequest(res, usernameCheck.error);
+
+    const emailCheck = validators.validateEmail(email, "Email", { allowNull: true });
+    if (emailCheck.error) return validators.badRequest(res, emailCheck.error);
 
     const validationError = await validateRoleAndSection(role, seksiId);
     if (validationError) {
-      return res.status(400).json({
-        success: false,
-        message: validationError,
-      });
+      return validators.badRequest(res, validationError);
+    }
+
+    // Cegah admin menurunkan role dirinya sendiri (self-lockout).
+    if (isSelf(req, id) && role !== "admin") {
+      return validators.badRequest(res, "Anda tidak dapat mengubah role akun Anda sendiri");
     }
 
     const roleId = await getRoleId(role);
@@ -213,7 +207,7 @@ const updateUser = async (req, res) => {
       WHERE id = $6
       RETURNING id
       `,
-      [nama.trim(), username.trim(), email || null, roleId, seksiId, id]
+      [namaCheck.value, usernameCheck.value, emailCheck.value, roleId, seksiId, id]
     );
 
     if (result.rows.length === 0) {
@@ -263,6 +257,12 @@ const updateStatus = async (req, res) => {
     }
 
     const isActive = status === true || status === "aktif";
+
+    // Cegah admin menonaktifkan akunnya sendiri (self-lockout).
+    if (isSelf(req, id) && !isActive) {
+      return validators.badRequest(res, "Anda tidak dapat menonaktifkan akun Anda sendiri");
+    }
+
     const result = await pool.query(
       `
       UPDATE users
@@ -303,14 +303,10 @@ const resetPassword = async (req, res) => {
     const { id } = req.params;
     const { password } = req.body;
 
-    if (!password || password.length < 8) {
-      return res.status(400).json({
-        success: false,
-        message: "Password baru minimal 8 karakter",
-      });
-    }
+    const passwordCheck = validators.validatePassword(password, "Password baru");
+    if (passwordCheck.error) return validators.badRequest(res, passwordCheck.error);
 
-    const passwordHash = await bcrypt.hash(password, 12);
+    const passwordHash = await bcrypt.hash(passwordCheck.value, 12);
     const result = await pool.query(
       `
       UPDATE users

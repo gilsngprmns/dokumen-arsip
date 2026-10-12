@@ -52,6 +52,10 @@ DB_USER=postgres
 DB_PASSWORD=password_postgres
 DB_NAME=Sistem_pengarsipan
 JWT_SECRET=buat-secret-acak-yang-panjang
+JWT_EXPIRES_IN=1d
+# Opsional: daftar pattern regex CORS tambahan (dipisah koma).
+# Kosongkan untuk memakai default trycloudflare.com.
+CORS_ORIGIN_PATTERNS=
 ADMIN_NAME=Administrator
 ADMIN_USERNAME=admin
 ADMIN_EMAIL=admin@localhost

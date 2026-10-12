@@ -1,11 +1,10 @@
 const express = require("express");
 
 const { getAllLogs } = require("../controllers/logAktivitasController");
-const authMiddleware = require("../middleware/authMiddleware");
-const roleMiddleware = require("../middleware/roleMiddleware");
+const adminOnly = require("../middleware/adminOnly");
 
 const router = express.Router();
 
-router.get("/", authMiddleware, roleMiddleware("admin"), getAllLogs);
+router.get("/", ...adminOnly, getAllLogs);
 
 module.exports = router;

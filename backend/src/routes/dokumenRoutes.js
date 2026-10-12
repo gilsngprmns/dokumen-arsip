@@ -2,6 +2,7 @@ const express = require("express");
 
 const authMiddleware = require("../middleware/authMiddleware");
 const { handleUpload } = require("../middleware/uploadMiddleware");
+const { requireIdParam } = require("../middleware/validateId");
 const {
   getAllDokumen,
   getTrashDokumen,
@@ -21,20 +22,22 @@ const {
 
 const router = express.Router();
 
+// ID numeric divalidasi di level route agar nilai non-numeric tidak sampai
+// ke PostgreSQL (yang akan menghasilkan error 500 padahal seharusnya 400).
 router.get("/public/:token", getPublicDokumenByQrToken);
 router.use(authMiddleware);
 router.get("/trash", getTrashDokumen);
 router.get("/", getAllDokumen);
-router.get("/:id", getDokumenById);
+router.get("/:id", requireIdParam("id"), getDokumenById);
 router.post("/", handleUpload, createDokumen);
-router.put("/:id", updateDokumen);
-router.patch("/:id/archive", archiveDokumen);
-router.delete("/:id", moveDokumenToTrash);
-router.put("/:id/restore", restoreDokumen);
-router.delete("/:id/permanent", permanentDeleteDokumen);
-router.get("/:id/versions", getDokumenVersions);
-router.post("/:id/version", handleUpload, createDocumentVersion);
-router.get("/:id/versions/:versionId/download", downloadDokumenVersion);
-router.get("/:id/download", downloadDokumen);
+router.put("/:id", requireIdParam("id"), updateDokumen);
+router.patch("/:id/archive", requireIdParam("id"), archiveDokumen);
+router.delete("/:id", requireIdParam("id"), moveDokumenToTrash);
+router.put("/:id/restore", requireIdParam("id"), restoreDokumen);
+router.delete("/:id/permanent", requireIdParam("id"), permanentDeleteDokumen);
+router.get("/:id/versions", requireIdParam("id"), getDokumenVersions);
+router.post("/:id/version", requireIdParam("id"), handleUpload, createDocumentVersion);
+router.get("/:id/versions/:versionId/download", requireIdParam("id"), requireIdParam("versionId"), downloadDokumenVersion);
+router.get("/:id/download", requireIdParam("id"), downloadDokumen);
 
 module.exports = router;

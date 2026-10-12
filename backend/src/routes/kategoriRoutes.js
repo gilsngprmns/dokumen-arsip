@@ -1,6 +1,7 @@
 const express = require("express");
 const authMiddleware = require("../middleware/authMiddleware");
-const roleMiddleware = require("../middleware/roleMiddleware");
+const adminOnly = require("../middleware/adminOnly");
+const { requireIdParam } = require("../middleware/validateId");
 
 const {
   getAllKategori,
@@ -11,12 +12,11 @@ const {
 } = require("../controllers/kategoriController");
 
 const router = express.Router();
-const adminOnly = [authMiddleware, roleMiddleware("admin")];
 
 router.get("/", authMiddleware, getAllKategori);
-router.get("/:id", authMiddleware, getKategoriById);
+router.get("/:id", authMiddleware, requireIdParam("id"), getKategoriById);
 router.post("/", ...adminOnly, createKategori);
-router.put("/:id", ...adminOnly, updateKategori);
-router.delete("/:id", ...adminOnly, deleteKategori);
+router.put("/:id", ...adminOnly, requireIdParam("id"), updateKategori);
+router.delete("/:id", ...adminOnly, requireIdParam("id"), deleteKategori);
 
 module.exports = router;

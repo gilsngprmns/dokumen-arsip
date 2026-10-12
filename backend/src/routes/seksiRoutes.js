@@ -1,6 +1,7 @@
 const express = require("express");
 const authMiddleware = require("../middleware/authMiddleware");
-const roleMiddleware = require("../middleware/roleMiddleware");
+const adminOnly = require("../middleware/adminOnly");
+const { requireIdParam } = require("../middleware/validateId");
 
 const {
   getAllSeksi,
@@ -11,12 +12,11 @@ const {
 } = require("../controllers/seksiController");
 
 const router = express.Router();
-const adminOnly = [authMiddleware, roleMiddleware("admin")];
 
 router.get("/", authMiddleware, getAllSeksi);
-router.get("/:id", authMiddleware, getSeksiById);
+router.get("/:id", authMiddleware, requireIdParam("id"), getSeksiById);
 router.post("/", ...adminOnly, createSeksi);
-router.put("/:id", ...adminOnly, updateSeksi);
-router.delete("/:id", ...adminOnly, deleteSeksi);
+router.put("/:id", ...adminOnly, requireIdParam("id"), updateSeksi);
+router.delete("/:id", ...adminOnly, requireIdParam("id"), deleteSeksi);
 
 module.exports = router;

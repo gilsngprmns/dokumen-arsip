@@ -1,4 +1,5 @@
 const pool = require("../config/database");
+const validators = require("../utils/validators");
 
 const getAllLogs = async (req, res) => {
   try {
@@ -7,7 +8,9 @@ const getAllLogs = async (req, res) => {
     let activityFilter = "";
 
     if (req.query.aktivitas) {
-      values.unshift(req.query.aktivitas);
+      const aktivitasCheck = validators.validateString(req.query.aktivitas, "Aktivitas", { max: validators.MAX_LENGTH.aktivitas });
+      if (aktivitasCheck.error) return validators.badRequest(res, aktivitasCheck.error);
+      values.unshift(aktivitasCheck.value);
       activityFilter = "WHERE l.aktivitas = $1";
     }
 

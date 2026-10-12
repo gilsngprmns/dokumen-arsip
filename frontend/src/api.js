@@ -1,7 +1,10 @@
 import axios from 'axios'
 
 const configuredApiUrl = import.meta.env.VITE_API_URL?.trim()
-const apiBaseUrl = configuredApiUrl || (import.meta.env.DEV ? 'http://localhost:5000/api' : '')
+const localApiUrl = import.meta.env.VITE_LOCAL_API_URL?.trim()
+const apiBaseUrl = import.meta.env.DEV
+  ? localApiUrl || 'http://localhost:5000/api'
+  : configuredApiUrl || ''
 
 if (!apiBaseUrl) {
   throw new Error('VITE_API_URL wajib dikonfigurasi untuk build production.')

@@ -11,6 +11,7 @@ const rakRoutes = require("./routes/rakRoutes");
 const dashboardRoutes = require("./routes/dashboardRoutes");
 const notificationRoutes = require("./routes/notificationRoutes");
 const documentRequestRoutes = require("./routes/documentRequestRoutes");
+const errorHandler = require("./middleware/errorHandler");
 
 const allowedOrigins = (process.env.CORS_ORIGINS || "http://localhost:5173")
   .split(",")
@@ -30,22 +31,34 @@ const isAllowedOrigin = (origin) =>
 
 const app = express();
 
+// Percayai header proxy (Cloudflare Tunnel, nginx, dsb) agar req.ip dan
+// pembatasan rate limit berdasarkan IP bekerja dengan benar.
+app.set("trust proxy", 1);
+
 // Middleware
-app.use(cors({
-  origin(origin, callback) {
-    if (isAllowedOrigin(origin)) return callback(null, true);
-    return callback(new Error("Origin tidak diizinkan"));
-  },
-  credentials: true,
-}));
+app.use(
+  cors({
+    origin(origin, callback) {
+      if (isAllowedOrigin(origin)) return callback(null, true);
+      // Beri status eksplisit agar error handler merespons 403 (bukan 500).
+      const error = new Error("Origin tidak diizinkan");
+      error.status = 403;
+      return callback(error);
+    },
+    credentials: true,
+  })
+);
 app.disable("x-powered-by");
 app.use((req, res, next) => {
   res.set("X-Content-Type-Options", "nosniff");
   res.set("X-Frame-Options", "DENY");
   res.set("Referrer-Policy", "no-referrer");
+  res.set("Permissions-Policy", "geolocation=(), microphone=(), camera=()");
+  if (req.secure) res.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
   next();
 });
-app.use(express.json());
+// Batasi ukuran body JSON untuk mencegah payload besar yang dibebankan ke memory.
+app.use(express.json({ limit: "1mb" }));
 
 // Root
 app.get("/", (req, res) => {
@@ -74,5 +87,8 @@ app.use((req, res) => {
     message: "Endpoint tidak ditemukan",
   });
 });
+
+// Error handler terpusat (harus didaftarkan paling akhir).
+app.use(errorHandler);
 
 module.exports = app;

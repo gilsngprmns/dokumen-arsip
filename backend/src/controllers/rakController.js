@@ -1,9 +1,5 @@
 const pool = require("../config/database");
-
-const normalizeText = (value) => {
-  if (typeof value !== "string") return value;
-  return value.trim();
-};
+const validators = require("../utils/validators");
 
 const validateSeksiAccess = (req, seksiId) => {
   if (req.user.role === "admin") return true;
@@ -28,7 +24,9 @@ const getAllRak = async (req, res) => {
       values.push(req.user.seksi_id);
       conditions.push(`r.seksi_id = $${values.length}`);
     } else if (seksi_id) {
-      values.push(seksi_id);
+      const seksiCheck = validators.validateIntegerId(seksi_id, "Seksi");
+      if (seksiCheck.error) return validators.badRequest(res, seksiCheck.error);
+      values.push(seksiCheck.value);
       conditions.push(`r.seksi_id = $${values.length}`);
     }
 
@@ -49,15 +47,22 @@ const getAllRak = async (req, res) => {
 const createRak = async (req, res) => {
   try {
     const { kode_rak, nama_rak, lokasi, seksi_id } = req.body;
-    const trimmedKodeRak = normalizeText(kode_rak);
-    const trimmedNamaRak = normalizeText(nama_rak);
-    const trimmedLokasi = normalizeText(lokasi);
 
-    if (!trimmedKodeRak || !trimmedNamaRak) {
-      return res.status(400).json({ success: false, message: "Kode dan nama rak wajib diisi" });
+    const kodeCheck = validators.validateString(kode_rak, "Kode rak", { max: validators.MAX_LENGTH.kode_rak });
+    if (kodeCheck.error) return validators.badRequest(res, kodeCheck.error);
+
+    const namaCheck = validators.validateString(nama_rak, "Nama rak", { max: validators.MAX_LENGTH.nama_rak });
+    if (namaCheck.error) return validators.badRequest(res, namaCheck.error);
+
+    const lokasiCheck = validators.validateOptionalString(lokasi, "Lokasi", { max: validators.MAX_LENGTH.lokasi });
+    if (lokasiCheck.error) return validators.badRequest(res, lokasiCheck.error);
+
+    let finalSeksiId = req.user.role === "admin" ? (seksi_id || null) : req.user.seksi_id;
+    if (finalSeksiId) {
+      const seksiCheck = validators.validateIntegerId(finalSeksiId, "Seksi");
+      if (seksiCheck.error) return validators.badRequest(res, seksiCheck.error);
+      finalSeksiId = seksiCheck.value;
     }
-
-    const finalSeksiId = req.user.role === "admin" ? (seksi_id || null) : req.user.seksi_id;
 
     if (finalSeksiId && !validateSeksiAccess(req, finalSeksiId)) {
       return res.status(403).json({ success: false, message: "Anda tidak memiliki akses ke seksi ini" });
@@ -66,7 +71,7 @@ const createRak = async (req, res) => {
     const result = await pool.query(
       `INSERT INTO rak (kode_rak, nama_rak, lokasi, seksi_id)
        VALUES ($1, $2, $3, $4) RETURNING id, kode_rak, nama_rak, lokasi, seksi_id`,
-      [trimmedKodeRak, trimmedNamaRak, trimmedLokasi || null, finalSeksiId]
+      [kodeCheck.value, namaCheck.value, lokasiCheck.value, finalSeksiId]
     );
 
     return res.status(201).json({ success: true, message: "Rak berhasil ditambahkan", data: result.rows[0] });
@@ -85,13 +90,15 @@ const createRak = async (req, res) => {
 const updateRak = async (req, res) => {
   try {
     const { kode_rak, nama_rak, lokasi, seksi_id } = req.body;
-    const trimmedKodeRak = normalizeText(kode_rak);
-    const trimmedNamaRak = normalizeText(nama_rak);
-    const trimmedLokasi = normalizeText(lokasi);
 
-    if (!trimmedKodeRak || !trimmedNamaRak) {
-      return res.status(400).json({ success: false, message: "Kode dan nama rak wajib diisi" });
-    }
+    const kodeCheck = validators.validateString(kode_rak, "Kode rak", { max: validators.MAX_LENGTH.kode_rak });
+    if (kodeCheck.error) return validators.badRequest(res, kodeCheck.error);
+
+    const namaCheck = validators.validateString(nama_rak, "Nama rak", { max: validators.MAX_LENGTH.nama_rak });
+    if (namaCheck.error) return validators.badRequest(res, namaCheck.error);
+
+    const lokasiCheck = validators.validateOptionalString(lokasi, "Lokasi", { max: validators.MAX_LENGTH.lokasi });
+    if (lokasiCheck.error) return validators.badRequest(res, lokasiCheck.error);
 
     const existingResult = await pool.query("SELECT id, seksi_id FROM rak WHERE id = $1", [req.params.id]);
     if (!existingResult.rows.length) {
@@ -102,7 +109,12 @@ const updateRak = async (req, res) => {
       return res.status(403).json({ success: false, message: "Anda tidak memiliki akses ke rak ini" });
     }
 
-    const finalSeksiId = req.user.role === "admin" ? (seksi_id ?? existingResult.rows[0].seksi_id) : req.user.seksi_id;
+    let finalSeksiId = req.user.role === "admin" ? (seksi_id ?? existingResult.rows[0].seksi_id) : req.user.seksi_id;
+    if (finalSeksiId) {
+      const seksiCheck = validators.validateIntegerId(finalSeksiId, "Seksi");
+      if (seksiCheck.error) return validators.badRequest(res, seksiCheck.error);
+      finalSeksiId = seksiCheck.value;
+    }
 
     if (finalSeksiId && !validateSeksiAccess(req, finalSeksiId)) {
       return res.status(403).json({ success: false, message: "Anda tidak memiliki akses ke seksi ini" });
@@ -112,7 +124,7 @@ const updateRak = async (req, res) => {
       `UPDATE rak SET kode_rak = $1, nama_rak = $2, lokasi = $3, seksi_id = $4,
         updated_at = CURRENT_TIMESTAMP WHERE id = $5
        RETURNING id, kode_rak, nama_rak, lokasi, seksi_id`,
-      [trimmedKodeRak, trimmedNamaRak, trimmedLokasi || null, finalSeksiId, req.params.id]
+      [kodeCheck.value, namaCheck.value, lokasiCheck.value, finalSeksiId, req.params.id]
     );
 
     return res.json({ success: true, message: "Rak berhasil diperbarui", data: result.rows[0] });

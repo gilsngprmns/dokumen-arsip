@@ -9,11 +9,11 @@ copy .env.example .env
 Set the URLs for the environment where the frontend is opened:
 
 ```env
-VITE_API_URL=http://localhost:5000/api
+VITE_LOCAL_API_URL=http://localhost:5000/api
 VITE_QR_BASE_URL=http://localhost:5173
 ```
 
-For the deployed frontend, configure `VITE_API_URL=https://dokumen-arsip-deploy-api.vercel.app/api` in the Vercel project environment. `VITE_API_URL` is the single API base URL in every environment; when it is unset during local Vite development, the app falls back to `http://localhost:5000/api`. Production builds require an HTTPS value. Restart Vite after changing `.env` because Vite reads environment variables when it starts.
+For the deployed frontend, configure `VITE_API_URL=https://dokumen-arsip-deploy-api.vercel.app/api` in the Vercel project environment. Vite development uses `VITE_LOCAL_API_URL` (defaulting to `http://localhost:5000/api`) and ignores `VITE_API_URL`, so a production URL in `.env` will not redirect local login to Vercel. Production builds require an HTTPS `VITE_API_URL`. Restart Vite after changing `.env` because Vite reads environment variables when it starts.
 
 ## Development
 

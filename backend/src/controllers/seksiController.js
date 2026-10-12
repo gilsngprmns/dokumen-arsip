@@ -1,4 +1,5 @@
 const pool = require("../config/database");
+const validators = require("../utils/validators");
 
 // GET semua seksi
 const getAllSeksi = async (req, res) => {
@@ -72,12 +73,8 @@ const createSeksi = async (req, res) => {
   try {
     const { nama_seksi } = req.body;
 
-    if (!nama_seksi || !nama_seksi.trim()) {
-      return res.status(400).json({
-        success: false,
-        message: "Nama seksi wajib diisi",
-      });
-    }
+    const namaCheck = validators.validateString(nama_seksi, "Nama seksi", { max: validators.MAX_LENGTH.nama_seksi });
+    if (namaCheck.error) return validators.badRequest(res, namaCheck.error);
 
     const result = await pool.query(
       `
@@ -85,7 +82,7 @@ const createSeksi = async (req, res) => {
       VALUES ($1)
       RETURNING *
       `,
-      [nama_seksi.trim()]
+      [namaCheck.value]
     );
 
     res.status(201).json({
@@ -116,12 +113,8 @@ const updateSeksi = async (req, res) => {
     const { id } = req.params;
     const { nama_seksi } = req.body;
 
-    if (!nama_seksi || !nama_seksi.trim()) {
-      return res.status(400).json({
-        success: false,
-        message: "Nama seksi wajib diisi",
-      });
-    }
+    const namaCheck = validators.validateString(nama_seksi, "Nama seksi", { max: validators.MAX_LENGTH.nama_seksi });
+    if (namaCheck.error) return validators.badRequest(res, namaCheck.error);
 
     const result = await pool.query(
       `
@@ -132,7 +125,7 @@ const updateSeksi = async (req, res) => {
       WHERE id = $2
       RETURNING *
       `,
-      [nama_seksi.trim(), id]
+      [namaCheck.value, id]
     );
 
     if (result.rows.length === 0) {

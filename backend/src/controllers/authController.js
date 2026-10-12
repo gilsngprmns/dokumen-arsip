@@ -3,6 +3,8 @@ const jwt = require("jsonwebtoken");
 
 const pool = require("../config/database");
 const logActivity = require("../services/activityLogService");
+const serializeUser = require("../utils/serializeUser");
+const validators = require("../utils/validators");
 
 const getJwtSecret = () => {
   if (!process.env.JWT_SECRET) {
@@ -24,17 +26,6 @@ const createToken = (user) =>
     { expiresIn: process.env.JWT_EXPIRES_IN || "1d" }
   );
 
-const serializeUser = (user) => ({
-  id: user.id,
-  nama: user.nama,
-  username: user.username,
-  email: user.email,
-  role: user.nama_role,
-  seksi_id: user.seksi_id,
-  nama_seksi: user.nama_seksi,
-  status: user.status ? "aktif" : "nonaktif",
-});
-
 const login = async (req, res) => {
   try {
     const { username, password } = req.body;
@@ -45,6 +36,9 @@ const login = async (req, res) => {
         message: "Username dan password wajib diisi",
       });
     }
+
+    const usernameCheck = validators.validateUsername(username, "Username");
+    if (usernameCheck.error) return validators.badRequest(res, usernameCheck.error);
 
     const result = await pool.query(
       `
@@ -63,7 +57,7 @@ const login = async (req, res) => {
       LEFT JOIN seksi s ON s.id = u.seksi_id
       WHERE u.username = $1
       `,
-      [username.trim()]
+      [usernameCheck.value]
     );
 
     if (result.rows.length === 0) {

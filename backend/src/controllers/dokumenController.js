@@ -5,6 +5,7 @@ const crypto = require("crypto");
 const pool = require("../config/database");
 const { uploadDirectory } = require("../middleware/uploadMiddleware");
 const logActivity = require("../services/activityLogService");
+const validators = require("../utils/validators");
 
 const documentSelect = `
   SELECT
@@ -44,11 +45,27 @@ const documentSelect = `
   LEFT JOIN users deleted_user ON deleted_user.id = d.deleted_by
 `;
 
+// Satu sumber untuk pemeriksaan akses berbasis seksi (sebelumnya ada dua
+// fungsi yang hampir identik: canAccessSection & canViewDocument).
 const canAccessSection = (user, seksiId) =>
-  user.role === "admin" || String(user.seksi_id) === String(seksiId);
-
-const canViewDocument = (user, seksiId) =>
   !user || user.role === "admin" || String(user.seksi_id) === String(seksiId);
+
+// Bersihkan nama file asli dari path dan karakter kontrol sebelum disimpan/
+// ditampilkan (mencegah path traversal pada header download & XSS).
+const sanitizeOriginalName = (name) => {
+  const base = path.basename(String(name || "file"));
+  // eslint-disable-next-line no-control-regex
+  return base.replace(/[\u0000-\u001f\u007f]/g, "").slice(0, 255) || "file";
+};
+
+// Hapus field internal (file_path) dari data yang dikirim ke client agar
+// struktur penyimpanan di server tidak bocor lewat respons API.
+const serializeDokumen = (row) => {
+  if (Array.isArray(row)) return row.map(serializeDokumen);
+  if (!row) return row;
+  const { file_path, ...safe } = row;
+  return safe;
+};
 
 const removeUploadedFile = async (file) => {
   if (file) {
@@ -76,20 +93,28 @@ const getAllDokumen = async (req, res) => {
     }
 
     if (seksi_id) {
-      values.push(seksi_id);
+      const check = validators.validateIntegerId(seksi_id, "Seksi");
+      if (check.error) return validators.badRequest(res, check.error);
+      values.push(check.value);
       conditions.push(`d.seksi_id = $${values.length}`);
     }
 
     if (kategori_id) {
-      values.push(kategori_id);
+      const check = validators.validateIntegerId(kategori_id, "Kategori");
+      if (check.error) return validators.badRequest(res, check.error);
+      values.push(check.value);
       conditions.push(`d.kategori_id = $${values.length}`);
     }
     if (tahun) {
-      values.push(tahun);
+      const check = validators.validateOptionalYear(tahun, "Tahun");
+      if (check.error) return validators.badRequest(res, check.error);
+      values.push(check.value);
       conditions.push(`d.tahun = $${values.length}`);
     }
     if (tanggal_dokumen) {
-      values.push(tanggal_dokumen);
+      const check = validators.validateOptionalIsoDate(tanggal_dokumen, "Tanggal dokumen");
+      if (check.error) return validators.badRequest(res, check.error);
+      values.push(check.value);
       conditions.push(`d.tanggal_dokumen = $${values.length}`);
     }
     if (bulan && /^\d{4}-\d{2}$/.test(bulan)) {
@@ -99,11 +124,15 @@ const getAllDokumen = async (req, res) => {
       conditions.push(`d.tanggal_dokumen < ($${values.length}::date + INTERVAL '1 month')`);
     }
     if (status) {
-      values.push(status);
+      const check = validators.validateEnum(status, "Status", ["aktif", "arsip"]);
+      if (check.error) return validators.badRequest(res, check.error);
+      values.push(check.value);
       conditions.push(`d.status = $${values.length}`);
     }
     if (search) {
-      values.push(`%${search}%`);
+      const check = validators.validateOptionalString(search, "Kata kunci", { max: validators.MAX_LENGTH.search });
+      if (check.error) return validators.badRequest(res, check.error);
+      values.push(`%${check.value}%`);
       conditions.push(
         `(d.nomor_dokumen ILIKE $${values.length} OR d.judul ILIKE $${values.length} OR d.nama_file ILIKE $${values.length})`
       );
@@ -113,14 +142,19 @@ const getAllDokumen = async (req, res) => {
     const countResult = paginated
       ? await pool.query(`SELECT COUNT(*)::int AS total FROM dokumen d${where}`, values)
       : null;
+    // Hanya tambahkan placeholder LIMIT/OFFSET (dan nilainya) ketika paginasi
+    // diminta. Menambah nilai ekstra tanpa placeholder membuat PostgreSQL
+    // menolak query ("bind message supplies too many parameters") -> error 500.
     const queryValues = [...values];
-    const pagination = paginated ? ` LIMIT $${queryValues.push(limit)} OFFSET $${queryValues.push((page - 1) * limit)}` : "";
+    const pagination = paginated
+      ? ` LIMIT $${queryValues.push(limit)} OFFSET $${queryValues.push((page - 1) * limit)}`
+      : "";
     const result = await pool.query(`${documentSelect}${where} ORDER BY d.created_at DESC${pagination}`, queryValues);
 
     return res.status(200).json({
       success: true,
       message: "Data dokumen berhasil diambil",
-      data: result.rows,
+      data: serializeDokumen(result.rows),
       ...(paginated && { pagination: { page, limit, total: countResult.rows[0].total, pages: Math.max(Math.ceil(countResult.rows[0].total / limit), 1) } }),
     });
   } catch (error) {
@@ -144,23 +178,33 @@ const getTrashDokumen = async (req, res) => {
     }
 
     if (seksi_id) {
-      values.push(seksi_id);
+      const check = validators.validateIntegerId(seksi_id, "Seksi");
+      if (check.error) return validators.badRequest(res, check.error);
+      values.push(check.value);
       conditions.push(`d.seksi_id = $${values.length}`);
     }
     if (kategori_id) {
-      values.push(kategori_id);
+      const check = validators.validateIntegerId(kategori_id, "Kategori");
+      if (check.error) return validators.badRequest(res, check.error);
+      values.push(check.value);
       conditions.push(`d.kategori_id = $${values.length}`);
     }
     if (tahun) {
-      values.push(tahun);
+      const check = validators.validateOptionalYear(tahun, "Tahun");
+      if (check.error) return validators.badRequest(res, check.error);
+      values.push(check.value);
       conditions.push(`d.tahun = $${values.length}`);
     }
     if (tanggal_dokumen) {
-      values.push(tanggal_dokumen);
+      const check = validators.validateOptionalIsoDate(tanggal_dokumen, "Tanggal dokumen");
+      if (check.error) return validators.badRequest(res, check.error);
+      values.push(check.value);
       conditions.push(`d.tanggal_dokumen = $${values.length}`);
     }
     if (search) {
-      values.push(`%${search}%`);
+      const check = validators.validateOptionalString(search, "Kata kunci", { max: validators.MAX_LENGTH.search });
+      if (check.error) return validators.badRequest(res, check.error);
+      values.push(`%${check.value}%`);
       conditions.push(
         `(d.nomor_dokumen ILIKE $${values.length} OR d.judul ILIKE $${values.length} OR d.nama_file ILIKE $${values.length})`
       );
@@ -174,7 +218,7 @@ const getTrashDokumen = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: "Dokumen di Tempat Sampah berhasil diambil",
-      data: result.rows,
+      data: serializeDokumen(result.rows),
     });
   } catch (error) {
     console.error(error);
@@ -199,7 +243,7 @@ const getDokumenById = async (req, res) => {
       });
     }
 
-    if (!canViewDocument(req.user, result.rows[0].seksi_id)) {
+    if (!canAccessSection(req.user, result.rows[0].seksi_id)) {
       return res.status(403).json({
         success: false,
         message: "Anda tidak memiliki akses ke dokumen ini",
@@ -208,7 +252,7 @@ const getDokumenById = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      data: result.rows[0],
+      data: serializeDokumen(result.rows[0]),
     });
   } catch (error) {
     console.error(error);
@@ -232,15 +276,63 @@ const createDokumen = async (req, res) => {
       rak_id: rakId,
     } = req.body;
 
-    if (!req.file || !nomor_dokumen || !judul || !seksiId || !kategoriId) {
+    if (!req.file) {
       await removeUploadedFile(req.file);
       return res.status(400).json({
         success: false,
-        message: "File, nomor dokumen, judul, seksi, dan kategori wajib diisi",
+        message: "File wajib diupload",
       });
     }
 
-    if (!canAccessSection(req.user, seksiId)) {
+    const nomorCheck = validators.validateString(nomor_dokumen, "Nomor dokumen", { max: validators.MAX_LENGTH.nomor_dokumen });
+    if (nomorCheck.error) {
+      await removeUploadedFile(req.file);
+      return validators.badRequest(res, nomorCheck.error);
+    }
+
+    const judulCheck = validators.validateString(judul, "Judul", { max: validators.MAX_LENGTH.judul });
+    if (judulCheck.error) {
+      await removeUploadedFile(req.file);
+      return validators.badRequest(res, judulCheck.error);
+    }
+
+    const seksiCheck = validators.validateIntegerId(seksiId, "Seksi");
+    if (seksiCheck.error) {
+      await removeUploadedFile(req.file);
+      return validators.badRequest(res, seksiCheck.error);
+    }
+
+    const kategoriCheck = validators.validateIntegerId(kategoriId, "Kategori");
+    if (kategoriCheck.error) {
+      await removeUploadedFile(req.file);
+      return validators.badRequest(res, kategoriCheck.error);
+    }
+
+    const tanggalCheck = validators.validateOptionalIsoDate(tanggal_dokumen, "Tanggal dokumen");
+    if (tanggalCheck.error) {
+      await removeUploadedFile(req.file);
+      return validators.badRequest(res, tanggalCheck.error);
+    }
+
+    const tahunCheck = validators.validateOptionalYear(tahun, "Tahun");
+    if (tahunCheck.error) {
+      await removeUploadedFile(req.file);
+      return validators.badRequest(res, tahunCheck.error);
+    }
+
+    const deskripsiCheck = validators.validateOptionalString(deskripsi, "Deskripsi", { max: validators.MAX_LENGTH.deskripsi });
+    if (deskripsiCheck.error) {
+      await removeUploadedFile(req.file);
+      return validators.badRequest(res, deskripsiCheck.error);
+    }
+
+    const rakCheck = validators.validateOptionalIntegerId(rakId, "Rak");
+    if (rakCheck.error) {
+      await removeUploadedFile(req.file);
+      return validators.badRequest(res, rakCheck.error);
+    }
+
+    if (!canAccessSection(req.user, seksiCheck.value)) {
       await removeUploadedFile(req.file);
       return res.status(403).json({
         success: false,
@@ -248,9 +340,9 @@ const createDokumen = async (req, res) => {
       });
     }
 
-    if (rakId) {
-      const rack = await pool.query("SELECT id, seksi_id FROM rak WHERE id = $1", [rakId]);
-      if (rack.rows.length === 0 || (rack.rows[0].seksi_id && String(rack.rows[0].seksi_id) !== String(seksiId))) {
+    if (rakCheck.value) {
+      const rack = await pool.query("SELECT id, seksi_id FROM rak WHERE id = $1", [rakCheck.value]);
+      if (rack.rows.length === 0 || (rack.rows[0].seksi_id && String(rack.rows[0].seksi_id) !== String(seksiCheck.value))) {
         await removeUploadedFile(req.file);
         return res.status(400).json({ success: false, message: "Rak tidak sesuai dengan seksi dokumen" });
       }
@@ -258,7 +350,7 @@ const createDokumen = async (req, res) => {
 
     const category = await pool.query(
       "SELECT id FROM kategori WHERE id = $1 AND seksi_id = $2",
-      [kategoriId, seksiId]
+      [kategoriCheck.value, seksiCheck.value]
     );
 
     if (category.rows.length === 0) {
@@ -269,6 +361,7 @@ const createDokumen = async (req, res) => {
       });
     }
 
+    const originalName = sanitizeOriginalName(req.file.originalname);
     const savedDoc = await pool.query(
       `
       INSERT INTO dokumen (
@@ -280,20 +373,20 @@ const createDokumen = async (req, res) => {
       RETURNING id, judul
       `,
       [
-        nomor_dokumen.trim(),
+        nomorCheck.value,
         crypto.randomBytes(32).toString("hex"),
-        judul.trim(),
-        seksiId,
-        kategoriId,
-        tanggal_dokumen || null,
-        tahun || null,
-        deskripsi || null,
-        req.file.originalname,
+        judulCheck.value,
+        seksiCheck.value,
+        kategoriCheck.value,
+        tanggalCheck.value,
+        tahunCheck.value,
+        deskripsiCheck.value,
+        originalName,
         req.file.filename,
         req.file.mimetype,
         req.file.size,
         req.user.id,
-        rakId || null,
+        rakCheck.value,
       ]
     );
 
@@ -307,7 +400,7 @@ const createDokumen = async (req, res) => {
       [
         savedDoc.rows[0].id,
         1,
-        req.file.originalname,
+        originalName,
         req.file.filename,
         req.file.mimetype,
         req.file.size,
@@ -320,7 +413,7 @@ const createDokumen = async (req, res) => {
       userId: req.user.id,
       documentId: savedDoc.rows[0].id,
       activity: "UPLOAD_DOKUMEN",
-      description: `Upload dokumen ${nomor_dokumen.trim()}`,
+      description: `Upload dokumen ${nomorCheck.value}`,
     });
 
     return res.status(201).json({
@@ -349,6 +442,23 @@ const createDokumen = async (req, res) => {
 const updateDokumen = async (req, res) => {
   try {
     const { seksi_id: seksiId, kategori_id: kategoriId, judul, deskripsi, rak_id: rakId } = req.body;
+
+    // Validasi field opsional yang dikirim (nilai kosong berarti "tidak diubah").
+    const judulCheck = validators.validateOptionalString(judul, "Judul", { max: validators.MAX_LENGTH.judul });
+    if (judulCheck.error) return validators.badRequest(res, judulCheck.error);
+
+    const seksiCheck = validators.validateOptionalIntegerId(seksiId, "Seksi");
+    if (seksiCheck.error) return validators.badRequest(res, seksiCheck.error);
+
+    const kategoriCheck = validators.validateOptionalIntegerId(kategoriId, "Kategori");
+    if (kategoriCheck.error) return validators.badRequest(res, kategoriCheck.error);
+
+    const deskripsiCheck = validators.validateOptionalString(deskripsi, "Deskripsi", { max: validators.MAX_LENGTH.deskripsi });
+    if (deskripsiCheck.error) return validators.badRequest(res, deskripsiCheck.error);
+
+    const rakCheck = validators.validateOptionalIntegerId(rakId, "Rak");
+    if (rakCheck.error) return validators.badRequest(res, rakCheck.error);
+
     const existing = await pool.query(
       "SELECT seksi_id, deleted_at FROM dokumen WHERE id = $1",
       [req.params.id]
@@ -375,7 +485,7 @@ const updateDokumen = async (req, res) => {
       });
     }
 
-    const targetSection = seksiId || existing.rows[0].seksi_id;
+    const targetSection = seksiCheck.value || existing.rows[0].seksi_id;
     if (!canAccessSection(req.user, targetSection)) {
       return res.status(403).json({
         success: false,
@@ -383,17 +493,17 @@ const updateDokumen = async (req, res) => {
       });
     }
 
-    if (rakId) {
-      const rack = await pool.query("SELECT id, seksi_id FROM rak WHERE id = $1", [rakId]);
+    if (rakCheck.value) {
+      const rack = await pool.query("SELECT id, seksi_id FROM rak WHERE id = $1", [rakCheck.value]);
       if (rack.rows.length === 0 || (rack.rows[0].seksi_id && String(rack.rows[0].seksi_id) !== String(targetSection))) {
         return res.status(400).json({ success: false, message: "Rak tidak sesuai dengan seksi dokumen" });
       }
     }
 
-    if (kategoriId) {
+    if (kategoriCheck.value) {
       const category = await pool.query(
         "SELECT id FROM kategori WHERE id = $1 AND seksi_id = $2",
-        [kategoriId, targetSection]
+        [kategoriCheck.value, targetSection]
       );
       if (category.rows.length === 0) {
         return res.status(400).json({
@@ -416,7 +526,7 @@ const updateDokumen = async (req, res) => {
       WHERE id = $6
       RETURNING id
       `,
-      [judul || null, seksiId || null, kategoriId || null, deskripsi, rakId || null, req.params.id]
+      [judulCheck.value, seksiCheck.value, kategoriCheck.value, deskripsiCheck.value, rakCheck.value, req.params.id]
     );
     await logActivity({
       userId: req.user.id,
@@ -688,7 +798,7 @@ const getDokumenVersions = async (req, res) => {
       });
     }
 
-    if (!canViewDocument(req.user, document.rows[0].seksi_id)) {
+    if (!canAccessSection(req.user, document.rows[0].seksi_id)) {
       return res.status(403).json({
         success: false,
         message: "Anda tidak memiliki akses ke dokumen ini",
@@ -701,7 +811,6 @@ const getDokumenVersions = async (req, res) => {
         dv.id,
         dv.version_number,
         dv.nama_file,
-        dv.file_path,
         dv.tipe_file,
         dv.ukuran_file,
         dv.catatan_perubahan,
@@ -738,12 +847,19 @@ const createDocumentVersion = async (req, res) => {
       });
     }
 
+    const catatanCheck = validators.validateOptionalString(catatan_perubahan, "Catatan perubahan", { max: validators.MAX_LENGTH.catatan_perubahan });
+    if (catatanCheck.error) {
+      await removeUploadedFile(req.file);
+      return validators.badRequest(res, catatanCheck.error);
+    }
+
     const document = await pool.query(
       "SELECT id, judul, seksi_id, file_path, nama_file, tipe_file, ukuran_file FROM dokumen WHERE id = $1 AND deleted_at IS NULL",
       [req.params.id]
     );
 
     if (document.rows.length === 0) {
+      await removeUploadedFile(req.file);
       return res.status(404).json({
         success: false,
         message: "Dokumen tidak ditemukan",
@@ -751,6 +867,7 @@ const createDocumentVersion = async (req, res) => {
     }
 
     if (!canAccessSection(req.user, document.rows[0].seksi_id)) {
+      await removeUploadedFile(req.file);
       return res.status(403).json({
         success: false,
         message: "Anda tidak memiliki akses untuk mengubah dokumen ini",
@@ -763,6 +880,7 @@ const createDocumentVersion = async (req, res) => {
     );
     const versionNumber = (lastVersion.rows[0]?.version_number || 0) + 1;
     const actorName = await getUserName(req.user.id);
+    const originalName = sanitizeOriginalName(req.file.originalname);
 
     const client = await pool.connect();
     try {
@@ -777,12 +895,12 @@ const createDocumentVersion = async (req, res) => {
         [
           req.params.id,
           versionNumber,
-          req.file.originalname,
+          originalName,
           req.file.filename,
           req.file.mimetype,
           req.file.size,
           req.user.id,
-          catatan_perubahan || null,
+          catatanCheck.value,
         ]
       );
 
@@ -796,7 +914,7 @@ const createDocumentVersion = async (req, res) => {
             updated_at = CURRENT_TIMESTAMP
         WHERE id = $5
         `,
-        [req.file.filename, req.file.originalname, req.file.mimetype, req.file.size, req.params.id]
+        [req.file.filename, originalName, req.file.mimetype, req.file.size, req.params.id]
       );
 
       await client.query(
@@ -848,7 +966,7 @@ const downloadDokumenVersion = async (req, res) => {
       });
     }
 
-    if (!canViewDocument(req.user, document.rows[0].seksi_id)) {
+    if (!canAccessSection(req.user, document.rows[0].seksi_id)) {
       return res.status(403).json({
         success: false,
         message: "Anda tidak memiliki akses ke dokumen ini",
@@ -914,7 +1032,7 @@ const downloadDokumen = async (req, res) => {
     }
 
     const document = result.rows[0];
-    if (!canViewDocument(req.user, document.seksi_id)) {
+    if (!canAccessSection(req.user, document.seksi_id)) {
       return res.status(403).json({
         success: false,
         message: "Anda tidak memiliki akses ke dokumen ini",

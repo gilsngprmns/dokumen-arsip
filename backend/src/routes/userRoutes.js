@@ -7,16 +7,15 @@ const {
   updateStatus,
   resetPassword,
 } = require("../controllers/userController");
-const authMiddleware = require("../middleware/authMiddleware");
-const roleMiddleware = require("../middleware/roleMiddleware");
+const adminOnly = require("../middleware/adminOnly");
+const { requireIdParam } = require("../middleware/validateId");
 
 const router = express.Router();
-const adminOnly = [authMiddleware, roleMiddleware("admin")];
 
 router.get("/", ...adminOnly, getAllUsers);
 router.post("/", ...adminOnly, createUser);
-router.put("/:id", ...adminOnly, updateUser);
-router.patch("/:id/status", ...adminOnly, updateStatus);
-router.patch("/:id/password", ...adminOnly, resetPassword);
+router.put("/:id", ...adminOnly, requireIdParam("id"), updateUser);
+router.patch("/:id/status", ...adminOnly, requireIdParam("id"), updateStatus);
+router.patch("/:id/password", ...adminOnly, requireIdParam("id"), resetPassword);
 
 module.exports = router;

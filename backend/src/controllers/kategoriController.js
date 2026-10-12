@@ -1,4 +1,5 @@
 const pool = require("../config/database");
+const validators = require("../utils/validators");
 
 // GET semua kategori
 const getAllKategori = async (req, res) => {
@@ -24,8 +25,10 @@ const getAllKategori = async (req, res) => {
       req.user.role === "admin" ? seksi_id : req.user.seksi_id;
 
     if (requestedSection) {
+      const seksiCheck = validators.validateIntegerId(requestedSection, "Seksi");
+      if (seksiCheck.error) return validators.badRequest(res, seksiCheck.error);
       query += ` WHERE k.seksi_id = $1`;
-      values.push(requestedSection);
+      values.push(seksiCheck.value);
     }
 
     query += ` ORDER BY s.id ASC, k.id ASC`;
@@ -105,16 +108,18 @@ const createKategori = async (req, res) => {
   try {
     const { seksi_id, nama_kategori, deskripsi } = req.body;
 
-    if (!seksi_id || !nama_kategori || !nama_kategori.trim()) {
-      return res.status(400).json({
-        success: false,
-        message: "Seksi dan nama kategori wajib diisi",
-      });
-    }
+    const seksiCheck = validators.validateIntegerId(seksi_id, "Seksi");
+    if (seksiCheck.error) return validators.badRequest(res, seksiCheck.error);
+
+    const namaCheck = validators.validateString(nama_kategori, "Nama kategori", { max: validators.MAX_LENGTH.nama_kategori });
+    if (namaCheck.error) return validators.badRequest(res, namaCheck.error);
+
+    const deskripsiCheck = validators.validateOptionalString(deskripsi, "Deskripsi", { max: validators.MAX_LENGTH.deskripsi });
+    if (deskripsiCheck.error) return validators.badRequest(res, deskripsiCheck.error);
 
     const seksi = await pool.query(
       "SELECT id FROM seksi WHERE id = $1",
-      [seksi_id]
+      [seksiCheck.value]
     );
 
     if (seksi.rows.length === 0) {
@@ -135,9 +140,9 @@ const createKategori = async (req, res) => {
       RETURNING *
       `,
       [
-        seksi_id,
-        nama_kategori.trim(),
-        deskripsi || null,
+        seksiCheck.value,
+        namaCheck.value,
+        deskripsiCheck.value,
       ]
     );
 
@@ -169,12 +174,14 @@ const updateKategori = async (req, res) => {
     const { id } = req.params;
     const { seksi_id, nama_kategori, deskripsi } = req.body;
 
-    if (!seksi_id || !nama_kategori || !nama_kategori.trim()) {
-      return res.status(400).json({
-        success: false,
-        message: "Seksi dan nama kategori wajib diisi",
-      });
-    }
+    const seksiCheck = validators.validateIntegerId(seksi_id, "Seksi");
+    if (seksiCheck.error) return validators.badRequest(res, seksiCheck.error);
+
+    const namaCheck = validators.validateString(nama_kategori, "Nama kategori", { max: validators.MAX_LENGTH.nama_kategori });
+    if (namaCheck.error) return validators.badRequest(res, namaCheck.error);
+
+    const deskripsiCheck = validators.validateOptionalString(deskripsi, "Deskripsi", { max: validators.MAX_LENGTH.deskripsi });
+    if (deskripsiCheck.error) return validators.badRequest(res, deskripsiCheck.error);
 
     const result = await pool.query(
       `
@@ -188,9 +195,9 @@ const updateKategori = async (req, res) => {
       RETURNING *
       `,
       [
-        seksi_id,
-        nama_kategori.trim(),
-        deskripsi || null,
+        seksiCheck.value,
+        namaCheck.value,
+        deskripsiCheck.value,
         id,
       ]
     );
